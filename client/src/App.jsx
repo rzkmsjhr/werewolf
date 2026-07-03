@@ -3,7 +3,8 @@ import { io } from 'socket.io-client';
 import { Shield, Moon, Sun, Crosshair, Users, MessageSquare, Activity, Clock } from 'lucide-react';
 import './index.css';
 
-const socket = io('http://localhost:3001');
+const BACKEND_URL = `http://${window.location.hostname}:3001`;
+const socket = io(BACKEND_URL);
 
 // Simple hash for distinct chat colors
 const stringToColor = (str) => {
@@ -17,7 +18,16 @@ const stringToColor = (str) => {
 
 function App() {
   const [username, setUsername] = useState('');
+  const [savedUsername, setSavedUsername] = useState(null);
   const [isJoined, setIsJoined] = useState(false);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('werewolf_username');
+    if (saved) {
+      setSavedUsername(saved);
+      setUsername(saved);
+    }
+  }, []);
   const [gameState, setGameState] = useState(null);
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
@@ -52,6 +62,10 @@ function App() {
     socket.on('joined', (success) => {
       setIsJoined(success);
       setErrorMsg('');
+      if (success) {
+        localStorage.setItem('werewolf_username', username);
+        setSavedUsername(username);
+      }
     });
 
     socket.on('join_error', (msg) => {
@@ -88,6 +102,17 @@ function App() {
         setWwVotes(votes);
     });
 
+    socket.on('profile_deleted', (success) => {
+      if (success) {
+         localStorage.removeItem('werewolf_username');
+         setSavedUsername(null);
+         setUsername('');
+         setIsJoined(false);
+      } else {
+         setErrorMsg('Failed to delete profile. Please try again.');
+      }
+    });
+
     return () => {
       socket.off('game_state');
       socket.off('joined');
@@ -99,12 +124,13 @@ function App() {
       socket.off('witch_info');
       socket.off('werewolf_team');
       socket.off('werewolf_votes');
+      socket.off('profile_deleted');
     };
-  }, []);
+  }, [username]);
 
   const fetchLeaderboard = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/metrics');
+      const res = await fetch(`${BACKEND_URL}/api/metrics`);
       const data = await res.json();
       setLeaderboard(data);
     } catch (e) {}
@@ -131,6 +157,17 @@ function App() {
 
   const handleStartGame = () => {
     socket.emit('start_game');
+  };
+
+  const handleLeaveGame = () => {
+      socket.emit('leave_game');
+      setIsJoined(false);
+  };
+
+  const handleDeleteProfile = () => {
+      if (window.confirm("Warning: Your record in the leaderboard will be permanently deleted. Are you sure?")) {
+          socket.emit('delete_profile', savedUsername);
+      }
   };
 
   const sendAction = (type, target) => {
@@ -163,20 +200,33 @@ function App() {
             <Moon size={24} color="var(--erp-primary)" />
             <h2>Werewolf Manager</h2>
           </div>
-          <p style={{ color: 'var(--erp-text-muted)', fontSize: '13px' }}>Authenticate to access the Village Sync.</p>
-          {errorMsg && <div style={{ color: 'var(--erp-danger)', fontSize: '13px', padding: '8px', background: '#ffebe6', borderRadius: '3px' }}>{errorMsg}</div>}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--erp-text-muted)' }}>VILLAGER ID / USERNAME</label>
-            <input 
-              type="text" 
-              className="erp-input"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="e.g., jsmith"
-              required
-            />
-          </div>
-          <button type="submit" className="erp-button" style={{ marginTop: '8px' }}>Login</button>
+          <p style={{ color: 'var(--erp-text-muted)', fontSize: '13px', marginBottom: '16px' }}>Authenticate to access the Village Sync.</p>
+          
+          {errorMsg && <div style={{ color: 'var(--erp-danger)', fontSize: '13px', padding: '8px', background: '#ffebe6', borderRadius: '3px', marginBottom: '16px' }}>{errorMsg}</div>}
+          
+          {savedUsername ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ padding: '12px', border: '1px solid var(--erp-border)', borderRadius: '4px', backgroundColor: '#fafbfc' }}>
+                    <div style={{ fontSize: '12px', color: 'var(--erp-text-muted)' }}>Welcome back,</div>
+                    <div style={{ fontWeight: 'bold', fontSize: '16px' }}>{savedUsername}</div>
+                </div>
+                <button type="submit" className="erp-button" style={{ width: '100%' }}>Continue as {savedUsername}</button>
+                <button type="button" className="erp-button danger" style={{ width: '100%' }} onClick={handleDeleteProfile}>Delete Profile & Metrics</button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--erp-text-muted)' }}>VILLAGER ID / USERNAME</label>
+              <input 
+                type="text" 
+                className="erp-input"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="e.g., jsmith"
+                required
+              />
+              <button type="submit" className="erp-button" style={{ marginTop: '8px' }}>Login</button>
+            </div>
+          )}
         </form>
       </div>
     );
@@ -213,7 +263,7 @@ function App() {
       <header className="top-bar">
         <div className="top-bar-title">
           <Moon size={18} />
-          <span>Werewolf Village Sync v5.1</span>
+          <span className="hide-mobile">Werewolf Village Sync v5.1</span>
         </div>
         
         {timer > 0 && (
@@ -224,7 +274,7 @@ function App() {
 
         <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
           {myRole && <span className="erp-badge" style={{ backgroundColor: 'rgba(255,255,255,0.2)', color: 'white' }}>Role: {myRole}</span>}
-          <span>User: {username}</span>
+          <span className="hide-mobile">User: {username}</span>
           <button 
             className="erp-button" 
             style={{ padding: '4px 8px', fontSize: '12px', backgroundColor: 'transparent', border: '1px solid white' }}
@@ -232,6 +282,13 @@ function App() {
           >
             <Activity size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }}/>
             {showLeaderboard ? 'Back to Game' : 'Leaderboard'}
+          </button>
+          <button 
+            className="erp-button danger" 
+            style={{ padding: '4px 8px', fontSize: '12px' }}
+            onClick={handleLeaveGame}
+          >
+            Leave Game
           </button>
         </div>
       </header>
@@ -293,7 +350,7 @@ function App() {
                   return (
                     <li key={i} className="roster-item" style={{ flexDirection: 'column', alignItems: 'flex-start', border: (isVoted || isNightTargeted) ? '1px solid var(--erp-warning)' : '1px solid transparent', backgroundColor: (isVoted || isNightTargeted) ? '#fff8eb' : '' }}>
                       <div style={{ display: 'flex', width: '100%', alignItems: 'center', gap: '8px' }}>
-                          <div className={`status-dot ${p.isAlive ? '' : 'offline'}`} title={p.isAlive ? 'Active' : 'Dead'}></div>
+                          <div className={`status-dot`} style={{ backgroundColor: !p.isAlive ? '#5e6c84' : (!p.connected ? '#ff991f' : 'var(--erp-success)') }} title={!p.isAlive ? 'Dead' : (!p.connected ? 'Offline/Disconnected' : 'Active')}></div>
                           <span style={{ flex: 1, color: p.isAlive ? 'inherit' : 'var(--erp-text-muted)', textDecoration: p.isAlive ? 'none' : 'line-through' }}>
                             {p.username}
                           </span>

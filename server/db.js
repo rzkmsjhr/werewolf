@@ -56,7 +56,17 @@ const getLeaderboard = () => {
     });
 };
 
+const deleteMetrics = (username) => {
+    return new Promise((resolve, reject) => {
+        db.run('DELETE FROM metrics WHERE username = ?', [username], (err) => {
+            if (err) return reject(err);
+            resolve();
+        });
+    });
+};
+
 module.exports = {
     updateMetrics,
-    getLeaderboard
+    getLeaderboard,
+    deleteMetrics
 };

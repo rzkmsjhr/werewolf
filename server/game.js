@@ -43,12 +43,35 @@ class GameEngine {
     }
 
     addPlayer(socketId, username, ipAddress) {
-        if (this.phase !== PHASES.LOBBY) return false;
-        const exists = Object.values(this.players).find(p => p.username === username);
-        if (exists) return false;
+        const existingPlayer = Object.values(this.players).find(p => p.username === username);
+        
+        if (existingPlayer) {
+            if (existingPlayer.ipAddress !== ipAddress) return false; // Must be same IP to reconnect
+            
+            // Reconnect logic
+            const oldSocketId = existingPlayer.socketId;
+            existingPlayer.socketId = socketId;
+            existingPlayer.connected = true;
+            this.players[socketId] = existingPlayer;
+            
+            if (oldSocketId !== socketId) {
+                delete this.players[oldSocketId];
+                if (this.nightActions[oldSocketId]) {
+                    this.nightActions[socketId] = this.nightActions[oldSocketId];
+                    delete this.nightActions[oldSocketId];
+                }
+                if (this.witchState.socketId === oldSocketId) {
+                    this.witchState.socketId = socketId;
+                }
+            }
+            this.broadcastState();
+            return true;
+        }
 
-        // Prevent multiple users from the same IP
-        const ipExists = Object.values(this.players).find(p => p.ipAddress === ipAddress);
+        if (this.phase !== PHASES.LOBBY) return false;
+
+        // Prevent multiple active users from the same IP (only allow one new account per IP)
+        const ipExists = Object.values(this.players).find(p => p.ipAddress === ipAddress && p.connected);
         if (ipExists) return false;
 
         this.players[socketId] = {
@@ -56,13 +79,22 @@ class GameEngine {
             role: null,
             isAlive: true,
             socketId,
-            ipAddress
+            ipAddress,
+            connected: true
         };
         this.broadcastState();
         return true;
     }
 
-    removePlayer(socketId) {
+    disconnectPlayer(socketId) {
+        const player = this.players[socketId];
+        if (player) {
+            player.connected = false;
+            this.broadcastState();
+        }
+    }
+
+    removePlayerExplicitly(socketId) {
         delete this.players[socketId];
         if (this.phase !== PHASES.LOBBY) {
             this.checkWinCondition();
@@ -508,6 +540,7 @@ class GameEngine {
         const publicPlayers = Object.values(this.players).map(p => ({
             username: p.username,
             isAlive: p.isAlive,
+            connected: p.connected,
             role: (this.phase === PHASES.END || !p.isAlive) ? p.role : null
         }));
 

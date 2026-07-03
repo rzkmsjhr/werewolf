@@ -77,8 +77,29 @@ io.on('connection', (socket) => {
     socket.on('disconnect', () => {
         const player = game.players[socket.id];
         if (player) {
-            io.emit('chat_message', { system: true, text: `${player.username} has disconnected.` });
-            game.removePlayer(socket.id);
+            io.emit('chat_message', { system: true, text: `${player.username} is offline.` });
+            game.disconnectPlayer(socket.id);
+        }
+    });
+
+    socket.on('leave_game', () => {
+        const player = game.players[socket.id];
+        if (player) {
+            io.emit('chat_message', { system: true, text: `${player.username} has left the game.` });
+            game.removePlayerExplicitly(socket.id);
+        }
+    });
+
+    socket.on('delete_profile', async (username) => {
+        try {
+            await db.deleteMetrics(username);
+            const player = Object.values(game.players).find(p => p.username === username);
+            if (player) {
+                game.removePlayerExplicitly(player.socketId);
+            }
+            socket.emit('profile_deleted', true);
+        } catch (err) {
+            socket.emit('profile_deleted', false);
         }
     });
 });

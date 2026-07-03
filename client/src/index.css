@@ -249,6 +249,42 @@ body {
   background-color: var(--erp-primary-hover);
 }
 
+/* Mobile Responsiveness */
+@media (max-width: 768px) {
+  .hide-mobile {
+    display: none !important;
+  }
+  .top-bar {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 48px;
+    padding: 8px 12px;
+    gap: 8px;
+  }
+  .main-content {
+    flex-direction: column;
+  }
+  .sidebar {
+    width: 100%;
+    border-right: none;
+    border-bottom: 2px solid var(--erp-border);
+    flex: none;
+    max-height: 220px;
+  }
+  .workspace {
+    padding: 12px;
+    gap: 12px;
+  }
+  .chat-container {
+    height: auto;
+    min-height: 350px;
+  }
+  .login-box {
+    width: 90%;
+    padding: 20px;
+  }
+}
+
 .erp-button.danger {
   background-color: var(--erp-danger);
 }
