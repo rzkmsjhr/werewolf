@@ -32,12 +32,12 @@ io.on('connection', (socket) => {
 
     socket.on('join_game', (username) => {
         const ipAddress = socket.handshake.address;
-        const success = game.addPlayer(socket.id, username, ipAddress);
-        if (success) {
+        const result = game.addPlayer(socket.id, username, ipAddress);
+        if (result === true) {
             socket.emit('joined', true);
             io.emit('chat_message', { system: true, text: `${username} joined the game.` });
         } else {
-            socket.emit('join_error', 'Cannot join right now, username taken, or you have already joined from this device (IP).');
+            socket.emit('join_error', typeof result === 'string' ? result : 'Cannot join right now. Please try again.');
         }
     });
 

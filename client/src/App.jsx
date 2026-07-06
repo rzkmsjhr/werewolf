@@ -57,6 +57,15 @@ function App() {
   const [witchKill, setWitchKill] = useState('');
 
   const [myNightTarget, setMyNightTarget] = useState(null);
+  const [witchConfirmed, setWitchConfirmed] = useState(false);
+
+  useEffect(() => {
+    if (gameState?.phase === 'NIGHT_WITCH') {
+        setWitchConfirmed(false);
+        setWitchKill('');
+        setWitchSave(true);
+    }
+  }, [gameState?.phase]);
   const [wwTeam, setWwTeam] = useState([]);
   const [wwVotes, setWwVotes] = useState({});
 
@@ -65,7 +74,7 @@ function App() {
   useEffect(() => {
     socket.on('game_state', (state) => {
       setGameState(state);
-      if (state.phase !== 'NIGHT') {
+      if (state.phase !== 'NIGHT' && state.phase !== 'NIGHT_WITCH') {
           setWitchInfo(null);
           setWitchSave(false);
           setWitchKill('');
@@ -197,13 +206,18 @@ function App() {
       }
   };
 
-  const sendWitchAction = () => {
-      socket.emit('player_action', { 
-          type: 'witch', 
-          save: witchSave, 
-          killTarget: witchKill 
-      });
-      setChatMessages(prev => [...prev, { system: true, text: `Witch actions submitted.` }]);
+  const sendWitchAction = (doNothing = false) => {
+      if (doNothing) {
+          socket.emit('player_action', { type: 'witch', save: false, killTarget: null });
+      } else {
+          socket.emit('player_action', { type: 'witch', save: true, killTarget: witchKill });
+      }
+      setWitchConfirmed(true);
+  };
+
+  const undoWitchAction = () => {
+      socket.emit('player_action', { type: 'witch_undo' });
+      setWitchConfirmed(false);
   };
 
   if (!isJoined) {
@@ -362,6 +376,15 @@ function App() {
                            actionBtn = <button className="erp-button success" style={{ padding: '2px 6px', fontSize: '10px', backgroundColor: isNightTargeted ? 'var(--erp-warning)' : 'var(--erp-success)' }} onClick={() => sendAction('target', p.username)}>{isNightTargeted ? 'Cancel Defend' : 'Bodyguard Defend'}</button>;
                       }
                   }
+                  else if (me?.isAlive && myRole === 'Witch' && gameState?.phase === 'NIGHT_WITCH' && !witchConfirmed && p.username !== username) {
+                      const isTarget = witchKill === p.username;
+                      const isWWTarget = witchInfo?.werewolfTarget === p.username;
+                      if (!isWWTarget) {
+                          actionBtn = <button className={`erp-button ${isTarget ? 'warning' : 'danger'}`} style={{ padding: '2px 6px', fontSize: '10px', backgroundColor: isTarget ? 'var(--erp-warning)' : '' }} onClick={() => setWitchKill(isTarget ? '' : p.username)}>{isTarget ? 'Cancel Poison' : 'Select to Poison'}</button>;
+                      } else {
+                          actionBtn = <span className="erp-badge" style={{fontSize: '9px', backgroundColor: 'var(--erp-danger)', color: 'white'}}>Attacked</span>;
+                      }
+                  }
                   else if (me?.isAlive && myRole === 'Hunter' && gameState?.phase === 'HUNTER_REVENGE' && p.username !== username) {
                       actionBtn = <button className="erp-button danger" style={{ padding: '2px 6px', fontSize: '10px' }} onClick={() => sendAction('target', p.username)}>Hunter Shoot</button>;
                   }
@@ -438,6 +461,55 @@ function App() {
             </div>
           ) : (
             <>
+              {/* New Witch Panel */}
+              {me?.isAlive && myRole === 'Witch' && gameState?.phase === 'NIGHT_WITCH' && (
+                  <div className="panel" style={{ marginBottom: '16px', backgroundColor: '#fafbfc', borderLeft: '4px solid purple' }}>
+                      <div className="panel-header" style={{ color: 'purple', paddingBottom: '8px' }}>Witch Action Required</div>
+                      <div style={{ padding: '0 20px 20px 20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                          {witchInfo?.werewolfTarget ? (
+                              <div style={{ color: 'var(--erp-danger)', fontWeight: 'bold' }}>
+                                  ⚠️ Werewolves attacked: {witchInfo.werewolfTarget}
+                              </div>
+                          ) : (
+                              <div style={{ color: 'var(--erp-text-muted)' }}>
+                                  Werewolves did not attack anyone.
+                              </div>
+                          )}
+                          
+                          {witchConfirmed ? (
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#e3fcef', padding: '12px', borderRadius: '4px', border: '1px solid #00875a' }}>
+                                  <span style={{ color: '#006644', fontWeight: 'bold' }}>✓ Action Registered</span>
+                                  <button className="erp-button" style={{ backgroundColor: 'transparent', color: '#172b4d', border: '1px solid #dfe1e6' }} onClick={undoWitchAction}>Undo</button>
+                              </div>
+                          ) : !witchInfo?.werewolfTarget ? (
+                              <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                                  <div style={{ flex: 1, fontSize: '13px', color: 'var(--erp-text-muted)', lineHeight: 1.4 }}>
+                                      Werewolves failed to agree on a target! No one was attacked, so you don't need to use your potions tonight.
+                                  </div>
+                                  <button className="erp-button" style={{ flex: 1, backgroundColor: 'transparent', color: 'var(--erp-text-main)', border: '1px solid var(--erp-border)' }} onClick={() => sendWitchAction(true)}>
+                                      Confirm: Do Nothing
+                                  </button>
+                              </div>
+                          ) : (
+                              <>
+                                  <div style={{ fontSize: '13px' }}>
+                                      To save {witchInfo?.werewolfTarget}, you MUST poison someone else.<br/>
+                                      <strong>Selected to Poison:</strong> {witchKill ? <span style={{ color: 'var(--erp-danger)', fontWeight: 'bold' }}>{witchKill}</span> : <span style={{ color: 'var(--erp-text-muted)' }}>None (Click a player on the left roster)</span>}
+                                  </div>
+                                  <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                                      <button className="erp-button warning" style={{ flex: 1 }} disabled={!witchKill} onClick={() => sendWitchAction(false)}>
+                                          Confirm: Save & Poison
+                                      </button>
+                                      <button className="erp-button" style={{ flex: 1, backgroundColor: 'transparent', color: 'var(--erp-text-main)', border: '1px solid var(--erp-border)' }} onClick={() => sendWitchAction(true)}>
+                                          Confirm: Do Nothing
+                                      </button>
+                                  </div>
+                              </>
+                          )}
+                      </div>
+                  </div>
+              )}
+
               {/* Chat Panel */}
               <div className="panel chat-container" style={{ flex: 1 }}>
                 <div className="panel-header" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -481,54 +553,7 @@ function App() {
                 </form>
               </div>
 
-              {/* Witch Specific Panel */}
-              {me?.isAlive && myRole === 'Witch' && gameState?.phase === 'NIGHT' && (
-                  <div className="panel" style={{ marginTop: 'auto' }}>
-                      <div className="panel-header" style={{ color: 'purple' }}>Witch Actions</div>
-                      <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                          {witchInfo ? (
-                              <>
-                                {witchInfo.werewolfTarget ? (
-                                    <div style={{ color: 'var(--erp-danger)', fontWeight: 'bold' }}>
-                                        Werewolves are attacking: {witchInfo.werewolfTarget}
-                                    </div>
-                                ) : (
-                                    <div style={{ color: 'var(--erp-text-muted)' }}>
-                                        Werewolves have not decided on a target yet.
-                                    </div>
-                                )}
-                                
-                                {witchInfo.hasSave && witchInfo.hasKill ? (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                        <div style={{ color: 'var(--erp-text-muted)', fontSize: '12px', fontStyle: 'italic' }}>
-                                            Note: You must use BOTH potions together, or use none.
-                                        </div>
-                                        <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-                                            <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                <input type="checkbox" checked={witchSave} onChange={(e) => setWitchSave(e.target.checked)} />
-                                                Use Save Potion on Target
-                                            </label>
-                                            <select className="erp-select" value={witchKill} onChange={(e) => setWitchKill(e.target.value)}>
-                                                <option value="">-- Use Kill Potion on... --</option>
-                                                {alivePlayers.filter(p => p.username !== username).map(p => (
-                                                    <option key={p.username} value={p.username}>{p.username}</option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                        <button className="erp-button" disabled={(witchSave && !witchKill) || (!witchSave && witchKill)} onClick={sendWitchAction}>
-                                            {(witchSave && witchKill) ? 'Confirm: Use Both Potions' : 'Confirm: Do Nothing'}
-                                        </button>
-                                    </div>
-                                ) : (
-                                     <div style={{ color: 'var(--erp-text-muted)', fontStyle: 'italic' }}>You have already used your potions.</div>
-                                )}
-                              </>
-                          ) : (
-                              <div>Waiting for werewolf synchronization...</div>
-                          )}
-                      </div>
-                  </div>
-              )}
+
             </>
           )}
         </main>
