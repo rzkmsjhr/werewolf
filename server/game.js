@@ -131,9 +131,8 @@ class GameEngine {
         }
 
         const len = ids.length;
-        let wwCount = 1;
-        if (len >= 6) wwCount = 2;
-        if (len >= 12) wwCount = 3;
+        let wwCount = Math.max(1, Math.round(len * 0.2857));
+        let seerCount = Math.max(1, 1 + Math.floor(Math.log2(len / 7)));
 
         const specials = [ROLES.GUARDIAN, ROLES.BODYGUARD, ROLES.HUNTER, ROLES.WITCH];
         // Shuffle specials
@@ -142,16 +141,19 @@ class GameEngine {
             [specials[i], specials[j]] = [specials[j], specials[i]];
         }
         
-        let specialCount = Math.max(1, Math.floor((len - wwCount - 1) / 2));
-        if (specialCount > 4) specialCount = 4;
+        let specialCount = Math.round(len * 0.2857);
+        if (specialCount > specials.length) specialCount = specials.length;
 
         ids.forEach((id, index) => {
-            if (index < wwCount) this.players[id].role = ROLES.WEREWOLF;
-            else if (index === wwCount) this.players[id].role = ROLES.SEER;
-            else if (index > wwCount && index <= wwCount + specialCount) {
-                this.players[id].role = specials[index - wwCount - 1];
+            if (index < wwCount) {
+                this.players[id].role = ROLES.WEREWOLF;
+            } else if (index < wwCount + seerCount) {
+                this.players[id].role = ROLES.SEER;
+            } else if (index < wwCount + seerCount + specialCount) {
+                this.players[id].role = specials[index - (wwCount + seerCount)];
+            } else {
+                this.players[id].role = ROLES.VILLAGER;
             }
-            else this.players[id].role = ROLES.VILLAGER;
             
             this.players[id].isAlive = true;
             this.io.to(id).emit('role_assigned', this.players[id].role);
@@ -557,6 +559,7 @@ class GameEngine {
          const publicPlayers = Object.values(this.players).map(p => ({
             username: p.username,
             isAlive: p.isAlive,
+            connected: p.connected,
             role: (this.phase === PHASES.END || !p.isAlive) ? p.role : null
         }));
 

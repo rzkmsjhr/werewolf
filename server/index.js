@@ -49,15 +49,7 @@ io.on('connection', (socket) => {
         if (game.phase === PHASES.NIGHT) {
             // Silently block chat at night
         } else if (game.phase === PHASES.DAY_CHAT || game.phase === PHASES.LOBBY || game.phase === PHASES.END) {
-            if (player.isAlive) {
-                io.emit('chat_message', { username: player.username, text: msg });
-            } else {
-                 Object.values(game.players).forEach(p => {
-                     if (!p.isAlive) {
-                          io.to(p.socketId).emit('chat_message', { username: player.username, text: msg, team: 'Dead' });
-                     }
-                 });
-            }
+            io.emit('chat_message', { username: player.username, text: msg, team: player.isAlive ? null : 'Dead' });
         } else {
              socket.emit('chat_message', { system: true, text: 'Chat is disabled during voting/reveals.' });
         }

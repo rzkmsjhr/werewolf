@@ -1,7 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
-import { Shield, Moon, Sun, Crosshair, Users, MessageSquare, Activity, Clock } from 'lucide-react';
+import { Shield, Moon, Sun, Crosshair, Users, MessageSquare, Activity, Clock, Info, X } from 'lucide-react';
 import './index.css';
+
+const getRoleIcon = (role) => {
+    switch (role) {
+        case 'Werewolf': return '🐺';
+        case 'Villager': return '🧑‍🌾';
+        case 'Seer': return '👁️';
+        case 'Guardian': return '🛡️';
+        case 'Bodyguard': return '💂';
+        case 'Hunter': return '🏹';
+        case 'Witch': return '🧙‍♀️';
+        default: return '';
+    }
+};
 
 const BACKEND_URL = `http://${window.location.hostname}:3001`;
 const socket = io(BACKEND_URL);
@@ -36,6 +49,7 @@ function App() {
   const [timer, setTimer] = useState(0);
   
   const [leaderboard, setLeaderboard] = useState([]);
+  const [showHowToPlay, setShowHowToPlay] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
 
   const [witchInfo, setWitchInfo] = useState(null);
@@ -79,7 +93,7 @@ function App() {
 
     socket.on('role_assigned', (role) => {
       setMyRole(role);
-      setChatMessages(prev => [...prev, { system: true, text: `Role Assignment: You are a [${role}].` }]);
+      setChatMessages(prev => [...prev, { system: true, text: `Role Assignment: You are a [${getRoleIcon(role)} ${role}].` }]);
     });
 
     socket.on('metrics_updated', () => {
@@ -235,7 +249,7 @@ function App() {
   const me = gameState?.players?.find(p => p.username === username);
   const alivePlayers = gameState?.players?.filter(p => p.isAlive) || [];
   
-  const canChat = me?.isAlive && (gameState?.phase === 'DAY_CHAT' || gameState?.phase === 'LOBBY' || gameState?.phase === 'END');
+  const canChat = !!me && (gameState?.phase === 'DAY_CHAT' || gameState?.phase === 'LOBBY' || gameState?.phase === 'END');
   
   const formatTime = (s) => {
       const m = Math.floor(s / 60);
@@ -273,8 +287,16 @@ function App() {
         )}
 
         <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-          {myRole && <span className="erp-badge" style={{ backgroundColor: 'rgba(255,255,255,0.2)', color: 'white' }}>Role: {myRole}</span>}
           <span className="hide-mobile">User: {username}</span>
+          {myRole && <span className="erp-badge" style={{ backgroundColor: 'rgba(255,255,255,0.2)', color: 'white' }}>Role: {getRoleIcon(myRole)} {myRole}</span>}
+          <button 
+            className="erp-button" 
+            style={{ padding: '4px 8px', fontSize: '12px', backgroundColor: 'transparent', border: '1px solid white', marginRight: '8px' }}
+            onClick={() => setShowHowToPlay(true)}
+          >
+            <Info size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }}/>
+            How to Play
+          </button>
           <button 
             className="erp-button" 
             style={{ padding: '4px 8px', fontSize: '12px', backgroundColor: 'transparent', border: '1px solid white' }}
@@ -354,7 +376,7 @@ function App() {
                           <span style={{ flex: 1, color: p.isAlive ? 'inherit' : 'var(--erp-text-muted)', textDecoration: p.isAlive ? 'none' : 'line-through' }}>
                             {p.username}
                           </span>
-                          {p.role && <span className="erp-badge" style={{fontSize:'9px', padding: '1px 4px'}}>{p.role}</span>}
+                          {p.role && <span className="erp-badge" style={{fontSize:'10px', padding: '2px 4px'}}>{getRoleIcon(p.role)} {p.role}</span>}
                           {actionBtn}
                       </div>
                       
@@ -433,6 +455,7 @@ function App() {
                         {!isSystem && (
                           <div className="chat-meta">
                             <span className="chat-author" style={{ color: avatarColor }}>{msg.username}</span>
+                            {msg.team === 'Dead' && <span style={{ marginLeft: '6px', fontSize: '9px', color: '#de350b', border: '1px solid #de350b', padding: '1px 3px', borderRadius: '2px' }}>DEAD</span>}
                           </div>
                         )}
                         <div className="chat-text" style={{ 
@@ -510,6 +533,43 @@ function App() {
           )}
         </main>
       </div>
+      {showHowToPlay && (
+        <div className="modal-overlay" onClick={() => setShowHowToPlay(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <span>How to Play</span>
+              <button className="erp-button" style={{ padding: '2px 8px' }} onClick={() => setShowHowToPlay(false)}>Close</button>
+            </div>
+            <div className="modal-body">
+              <h3>Game Overview</h3>
+              <p>Werewolf Village Sync is a social deduction game. The village (good guys) wants to find and eliminate the Werewolves, while the Werewolves (bad guys) want to eliminate enough villagers to take over.</p>
+              
+              <h3>Roles</h3>
+              <ul>
+                <li><strong>🐺 Werewolf:</strong> Wakes up at NIGHT to secretly attack a player. Multiple werewolves must sync their votes to kill.</li>
+                <li><strong>🧑‍🌾 Villager:</strong> Standard player. Uses daytime chat to figure out who the werewolves are.</li>
+                <li><strong>👁️ Seer:</strong> Wakes up at NIGHT to check if one player is a Werewolf or not.</li>
+                <li><strong>🛡️ Guardian:</strong> Wakes up at NIGHT to protect a player from being killed by werewolves.</li>
+                <li><strong>💂 Bodyguard:</strong> Protects a player at NIGHT. If the protected player is attacked, they survive, but the Bodyguard dies in their place!</li>
+                <li><strong>🏹 Hunter:</strong> If the Hunter is killed (by wolves or by village vote), they immediately shoot and drag one other player down with them.</li>
+                <li><strong>🧙‍♀️ Witch:</strong> Wakes up at NIGHT. They know who the werewolves are attacking. They have two potions: Save and Kill. They can use BOTH potions at once to save the victim and kill someone else, or do nothing.</li>
+              </ul>
+              
+              <h3>Phases</h3>
+              <ul>
+                <li><strong>LOBBY:</strong> Wait for at least 7 players, then host clicks Start Game.</li>
+                <li><strong>NIGHT:</strong> Village sleeps. Evil and Special roles wake up to perform actions. Chat is disabled.</li>
+                <li><strong>DAY CHAT:</strong> Village wakes up. Night deaths are announced. Debate and accuse in chat!</li>
+                <li><strong>DAY VOTE:</strong> Click on a player's name in the Team Roster on the left to cast your vote to execute them.</li>
+                <li><strong>REVEAL:</strong> The execution is carried out. The executed player's true role is revealed.</li>
+              </ul>
+              
+              <h3>Death Rules</h3>
+              <p>When you die, your true role is revealed on the roster for everyone to see. Dead players cannot vote or use abilities, but they CAN still type in the chat to influence the living players!</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
