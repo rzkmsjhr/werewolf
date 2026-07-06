@@ -491,8 +491,10 @@ class GameEngine {
         if (witchKillTarget) {
             if (protectedUser === witchKillTarget) {
                 if (bodyguardDiedFor === witchKillTarget) {
-                    // Bodyguard intercepts the poison and dies
-                    if (!diedUsers.includes(bodyguard.username)) {
+                    // Bodyguard intercepts the poison
+                    // But check if the Bodyguard was the Werewolf target and got saved by the Witch!
+                    const bodyguardWasSaved = (witchSaved && wwKillTarget === bodyguard.username);
+                    if (!bodyguardWasSaved && !diedUsers.includes(bodyguard.username)) {
                         diedUsers.push(bodyguard.username);
                     }
                 }
