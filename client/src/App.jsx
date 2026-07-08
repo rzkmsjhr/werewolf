@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
-import { Shield, Moon, Sun, Crosshair, Users, MessageSquare, Activity, Clock, Info, X } from 'lucide-react';
+import { Shield, Moon, Sun, Crosshair, Users, MessageSquare, Activity, Clock, Info, X, Volume2, VolumeX } from 'lucide-react';
 import './index.css';
 
 const getRoleIcon = (role) => {
@@ -29,10 +29,64 @@ const stringToColor = (str) => {
   return '#' + '000000'.substring(0, 6 - color.length) + color;
 };
 
+const playSound = (filename, speed = 1.0, useFade = true) => {
+    if (sessionStorage.getItem('werewolf_muted') === 'true') return;
+    try {
+        const audio = new Audio(`/sounds/${filename}`);
+        audio.playbackRate = speed;
+        audio.volume = useFade ? 0 : 1.0;
+        
+        audio.play().catch(err => {
+            console.log("Audio auto-play blocked by browser (user hasn't interacted yet)", err);
+        });
+
+        if (useFade) {
+            // 300ms Fade-in
+            let fadeAmount = 0;
+            const fadeInInterval = setInterval(() => {
+                fadeAmount += 0.1;
+                if (fadeAmount >= 1.0) {
+                    audio.volume = 1.0;
+                    clearInterval(fadeInInterval);
+                } else {
+                    audio.volume = fadeAmount;
+                }
+            }, 30);
+
+            // 2-second Fade-out
+            let isFadingOut = false;
+            audio.addEventListener('timeupdate', () => {
+                if (!isFadingOut && audio.duration && audio.currentTime >= audio.duration - 2.0) {
+                    isFadingOut = true;
+                    let currentVol = audio.volume;
+                    const fadeOutInterval = setInterval(() => {
+                        currentVol -= 0.05;
+                        if (currentVol <= 0.05) {
+                            audio.volume = 0;
+                            clearInterval(fadeOutInterval);
+                        } else {
+                            audio.volume = currentVol;
+                        }
+                    }, 100); // 100ms * 20 steps = 2 seconds to fade out
+                }
+            });
+        }
+    } catch (err) {
+        console.error("Failed to play sound:", err);
+    }
+};
+
 function App() {
   const [username, setUsername] = useState('');
   const [savedUsername, setSavedUsername] = useState(null);
   const [isJoined, setIsJoined] = useState(false);
+  const [isMuted, setIsMuted] = useState(sessionStorage.getItem('werewolf_muted') === 'true');
+
+  const toggleMute = () => {
+      const newMuted = !isMuted;
+      setIsMuted(newMuted);
+      sessionStorage.setItem('werewolf_muted', newMuted);
+  };
 
   useEffect(() => {
     const saved = sessionStorage.getItem('werewolf_username');
@@ -73,7 +127,12 @@ function App() {
 
   useEffect(() => {
     socket.on('game_state', (state) => {
-      setGameState(state);
+      setGameState(prevState => {
+          if (prevState?.phase === 'LOBBY' && state.phase !== 'LOBBY') {
+              playSound('game-start.mp3');
+          }
+          return state;
+      });
       if (state.phase !== 'NIGHT' && state.phase !== 'NIGHT_WITCH') {
           setWitchInfo(null);
           setWitchSave(false);
@@ -98,6 +157,29 @@ function App() {
     socket.on('chat_message', (msg) => {
       setChatMessages(prev => [...prev, msg]);
       setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+
+      // Sound triggers from chat
+      if (msg.text?.includes('Night falls')) {
+          playSound('wolf-howl.mp3');
+      } else if (msg.text?.includes('Morning Announcement')) {
+          setTimeout(() => playSound('morning-comes.mp3'), 2000);
+      } else if (msg.text?.includes('Voting Phase:')) {
+          playSound('vote-session.mp3');
+      }
+
+      // Kill triggers
+      if (msg.text?.includes('has been executed') || 
+          msg.text?.includes('died during the night') || 
+          (msg.text?.includes('Hunter') && msg.text?.includes('shot') && msg.text?.includes('dead'))) {
+          
+          if (msg.text?.includes('Hunter') && msg.text?.includes('shot')) {
+              playSound('hunter-shot.mp3');
+              // Delay dying sound slightly after gunshot
+              setTimeout(() => playSound('dying.mp3', 2.0), 600);
+          } else {
+              playSound('dying.mp3', 2.0);
+          }
+      }
     });
 
     socket.on('role_assigned', (role) => {
@@ -111,6 +193,10 @@ function App() {
 
     socket.on('timer_sync', (t) => {
         setTimer(t);
+        // Play timer warning when timer hits 5
+        if (t === 5) {
+            playSound('timer-end.mp3', 1.0, false);
+        }
     });
 
     socket.on('witch_info', (info) => {
@@ -322,6 +408,14 @@ function App() {
             {showLeaderboard ? 'Back to Game' : 'Leaderboard'}
           </button>
           <button 
+            className="erp-button" 
+            style={{ padding: '4px', backgroundColor: 'transparent', border: 'none', color: 'white', cursor: 'pointer' }}
+            onClick={toggleMute}
+            title={isMuted ? "Unmute Sound" : "Mute Sound"}
+          >
+            {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+          </button>
+          <button 
             className="erp-button danger" 
             style={{ padding: '4px 8px', fontSize: '12px' }}
             onClick={handleLeaveGame}
@@ -480,8 +574,8 @@ function App() {
             <>
               {/* New Witch Panel */}
               {me?.isAlive && myRole === 'Witch' && gameState?.phase === 'NIGHT_WITCH' && (
-                  <div className="panel" style={{ marginBottom: '16px', backgroundColor: '#fafbfc', borderLeft: '4px solid purple' }}>
-                      <div className="panel-header" style={{ color: 'purple', paddingBottom: '8px' }}>Witch Action Required</div>
+                  <div className="panel" style={{ marginBottom: '16px', borderLeft: '4px solid #a371f7' }}>
+                      <div className="panel-header" style={{ color: '#a371f7', paddingBottom: '8px' }}>Witch Action Required</div>
                       <div style={{ padding: '0 20px 20px 20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                           {witchInfo?.werewolfTarget ? (
                               <div style={{ color: 'var(--erp-danger)', fontWeight: 'bold' }}>
@@ -494,9 +588,9 @@ function App() {
                           )}
                           
                           {witchConfirmed ? (
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#e3fcef', padding: '12px', borderRadius: '4px', border: '1px solid #00875a' }}>
-                                  <span style={{ color: '#006644', fontWeight: 'bold' }}>✓ Action Registered</span>
-                                  <button className="erp-button" style={{ backgroundColor: 'transparent', color: '#172b4d', border: '1px solid #dfe1e6' }} onClick={undoWitchAction}>Undo</button>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--erp-success-bg, #e3fcef)', padding: '12px', borderRadius: '4px', border: '1px solid var(--erp-success, #00875a)' }}>
+                                  <span style={{ color: 'var(--erp-success, #006644)', fontWeight: 'bold' }}>✓ Action Registered</span>
+                                  <button className="erp-button" style={{ backgroundColor: 'transparent', color: 'var(--erp-text-main)', border: '1px solid var(--erp-border)' }} onClick={undoWitchAction}>Undo</button>
                               </div>
                           ) : !witchInfo?.werewolfTarget ? (
                               <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
@@ -509,15 +603,15 @@ function App() {
                               </div>
                           ) : (
                               <>
-                                  <div style={{ fontSize: '13px' }}>
-                                      To save {witchInfo?.werewolfTarget}, you MUST poison someone else.<br/>
+                                  <div style={{ fontSize: '13px', color: 'var(--erp-text-main)' }}>
+                                      To save <strong style={{ color: 'var(--erp-danger)' }}>{witchInfo?.werewolfTarget}</strong>, you MUST poison someone else.<br/>
                                       <strong>Selected to Poison:</strong> {witchKill ? <span style={{ color: 'var(--erp-danger)', fontWeight: 'bold' }}>{witchKill}</span> : <span style={{ color: 'var(--erp-text-muted)' }}>None (Click a player on the left roster)</span>}
                                   </div>
                                   <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                                       <button className="erp-button warning" style={{ flex: 1 }} disabled={!witchKill} onClick={() => sendWitchAction(false)}>
                                           Confirm: Save & Poison
                                       </button>
-                                      <button className="erp-button" style={{ flex: 1, backgroundColor: 'transparent', color: 'var(--erp-text-main)', border: '1px solid var(--erp-border)' }} onClick={() => sendWitchAction(true)}>
+                                      <button className="erp-button" style={{ flex: 1, backgroundColor: 'var(--erp-bg-main)', color: 'var(--erp-text-main)', border: '1px solid var(--erp-border)' }} onClick={() => sendWitchAction(true)}>
                                           Confirm: Do Nothing
                                       </button>
                                   </div>
