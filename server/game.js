@@ -76,8 +76,8 @@ class GameEngine {
         }
 
         // Prevent multiple active users from the same IP (only allow one new account per IP)
-        const ipExists = Object.values(this.players).find(p => p.ipAddress === ipAddress && p.connected);
-        if (ipExists) return 'You are already playing from another browser tab on this network!';
+        // const ipExists = Object.values(this.players).find(p => p.ipAddress === ipAddress && p.connected);
+        // if (ipExists) return 'You are already playing from another browser tab on this network!';
 
         this.players[socketId] = {
             username,
@@ -211,7 +211,11 @@ class GameEngine {
 
     handleAction(socketId, actionData) {
         const player = this.players[socketId];
-        if (!player || !player.isAlive) return;
+        if (!player) return;
+        
+        // Dead players cannot act, UNLESS they are a Hunter taking their dying shot
+        const isDyingHunter = !player.isAlive && player.role === ROLES.HUNTER && this.phase === PHASES.HUNTER_REVENGE && this.dyingHunter === player.username;
+        if (!player.isAlive && !isDyingHunter) return;
 
         if (this.phase === PHASES.DAY_VOTE && actionData.type === 'vote') {
             if (actionData.target === player.username) return; // Cannot vote self
@@ -237,7 +241,18 @@ class GameEngine {
 
     handleNightAction(player, actionData) {
         if (player.role === ROLES.SEER && actionData.type === 'target') {
-            if (actionData.target === null || this.nightActions[player.socketId]) return;
+            if (actionData.target === null) return;
+            
+            if (this.nightActions[player.socketId]) {
+                const originalTarget = this.nightActions[player.socketId];
+                const targetPlayer = Object.values(this.players).find(p => p.username === originalTarget);
+                if (targetPlayer) {
+                    const isWolf = targetPlayer.role === ROLES.WEREWOLF;
+                    this.io.to(player.socketId).emit('chat_message', { system: true, text: `(Locked) Seer Vision: ${targetPlayer.username} is ${isWolf ? 'a Werewolf' : 'NOT a Werewolf'}.` });
+                }
+                return;
+            }
+            
             const targetPlayer = Object.values(this.players).find(p => p.username === actionData.target);
             if (targetPlayer) {
                 this.nightActions[player.socketId] = actionData.target;
@@ -318,9 +333,14 @@ class GameEngine {
 
         this.phase = PHASES.REVEAL;
         
-        if (!tied && executedUser) {
+        if (!tied && executedUser && executedUser !== '__SKIP__') {
             this.io.emit('chat_message', { system: true, text: `Village Decision: ${executedUser} has been executed.` });
             this.killPlayer(executedUser, () => this.startNight());
+        } else if (!tied && executedUser === '__SKIP__') {
+            this.io.emit('chat_message', { system: true, text: `Village Decision: The village voted to skip execution today.` });
+            if (!this.checkWinCondition()) {
+                this.setTimer(3, null, () => this.startNight());
+            }
         } else {
             this.io.emit('chat_message', { system: true, text: `No consensus. Nobody was executed.` });
             if (!this.checkWinCondition()) {

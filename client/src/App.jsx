@@ -35,7 +35,7 @@ function App() {
   const [isJoined, setIsJoined] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem('werewolf_username');
+    const saved = sessionStorage.getItem('werewolf_username');
     if (saved) {
       setSavedUsername(saved);
       setUsername(saved);
@@ -86,7 +86,7 @@ function App() {
       setIsJoined(success);
       setErrorMsg('');
       if (success) {
-        localStorage.setItem('werewolf_username', username);
+        sessionStorage.setItem('werewolf_username', username);
         setSavedUsername(username);
       }
     });
@@ -127,7 +127,7 @@ function App() {
 
     socket.on('profile_deleted', (success) => {
       if (success) {
-         localStorage.removeItem('werewolf_username');
+         sessionStorage.removeItem('werewolf_username');
          setSavedUsername(null);
          setUsername('');
          setIsJoined(false);
@@ -279,14 +279,16 @@ function App() {
       } else if (text.startsWith('Seer Vision')) {
           return { bg: '#e6fcff', border: '#b3f5ff', text: '#006580' }; // cyan
       } else if (text.startsWith('Night falls') || text.includes('Morning Announcement')) {
-          return { bg: '#172b4d', border: '#091e42', text: '#ffffff' }; // dark mode for night/morning
+          return { bg: 'var(--erp-system-night-bg)', border: 'var(--erp-system-night-border)', text: 'var(--erp-system-night-text)' }; // dark mode for night/morning
       } else {
           return { bg: '#e3fcef', border: '#abf5d1', text: '#00875a' }; // default green
       }
   };
 
+  const isNightPhase = gameState?.phase === 'NIGHT' || gameState?.phase === 'NIGHT_WITCH';
+
   return (
-    <div className="app-container">
+    <div className={`app-container ${isNightPhase ? 'theme-night' : ''}`}>
       {/* Top Bar */}
       <header className="top-bar">
         <div className="top-bar-title">
@@ -351,6 +353,21 @@ function App() {
           <div className="sidebar-section" style={{ flex: 1, overflowY: 'auto' }}>
             <div className="sidebar-title">Team Roster ({gameState?.players?.length || 0})</div>
             <ul className="roster-list">
+              {gameState?.phase === 'DAY_VOTE' && me?.isAlive && (
+                  <li className="roster-item" style={{ flexDirection: 'column', alignItems: 'flex-start', border: (gameState?.votes && gameState.votes[username] === '__SKIP__') ? '1px solid var(--erp-warning)' : '1px dashed var(--erp-border)', marginBottom: '8px', backgroundColor: (gameState?.votes && gameState.votes[username] === '__SKIP__') ? 'var(--erp-highlight-bg)' : '' }}>
+                      <div style={{ display: 'flex', width: '100%', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ flex: 1, color: 'var(--erp-text-main)', fontStyle: 'italic' }}>Skip Execution</span>
+                          <button className={`erp-button ${(gameState?.votes && gameState.votes[username] === '__SKIP__') ? '' : 'danger'}`} style={{ padding: '2px 6px', fontSize: '10px', backgroundColor: (gameState?.votes && gameState.votes[username] === '__SKIP__') ? 'var(--erp-warning)' : '' }} onClick={() => sendAction('vote', '__SKIP__')}>
+                              {(gameState?.votes && gameState.votes[username] === '__SKIP__') ? 'Cancel Vote' : 'Vote to Skip'}
+                          </button>
+                      </div>
+                      {gameState?.votes && Object.values(gameState.votes).filter(v => v === '__SKIP__').length > 0 && (
+                          <div style={{ fontSize: '10px', color: 'var(--erp-danger)', marginLeft: '8px', fontWeight: 'bold' }}>
+                              Votes to Skip: {Object.values(gameState.votes).filter(v => v === '__SKIP__').length}
+                          </div>
+                      )}
+                  </li>
+              )}
               {gameState?.players?.map((p, i) => {
                   
                   // Logic to show inline action buttons
@@ -364,7 +381,7 @@ function App() {
                   if (me?.isAlive && p.isAlive && gameState?.phase === 'DAY_VOTE' && p.username !== username) {
                       actionBtn = <button className={`erp-button ${isVoted ? '' : 'danger'}`} style={{ padding: '2px 6px', fontSize: '10px', backgroundColor: isVoted ? 'var(--erp-warning)' : '' }} onClick={() => sendAction('vote', p.username)}>{isVoted ? 'Cancel Vote' : 'Vote (Execute)'}</button>;
                   }
-                  else if (me?.isAlive && gameState?.phase === 'NIGHT') {
+                  else if (me?.isAlive && gameState?.phase === 'NIGHT' && p.isAlive) {
                       if (myRole === 'Werewolf' && p.username !== username && !wwTeam.includes(p.username)) {
                            actionBtn = <button className={`erp-button ${isNightTargeted ? 'warning' : 'danger'}`} style={{ padding: '2px 6px', fontSize: '10px', backgroundColor: isNightTargeted ? 'var(--erp-warning)' : '' }} onClick={() => sendAction('target', p.username)}>{isNightTargeted ? 'Cancel Attack' : 'Werewolf Attack'}</button>;
                       } else if (myRole === 'Seer' && p.username !== username) {
@@ -376,7 +393,7 @@ function App() {
                            actionBtn = <button className="erp-button success" style={{ padding: '2px 6px', fontSize: '10px', backgroundColor: isNightTargeted ? 'var(--erp-warning)' : 'var(--erp-success)' }} onClick={() => sendAction('target', p.username)}>{isNightTargeted ? 'Cancel Defend' : 'Bodyguard Defend'}</button>;
                       }
                   }
-                  else if (me?.isAlive && myRole === 'Witch' && gameState?.phase === 'NIGHT_WITCH' && !witchConfirmed && p.username !== username) {
+                  else if (me?.isAlive && myRole === 'Witch' && gameState?.phase === 'NIGHT_WITCH' && !witchConfirmed && p.username !== username && witchInfo?.werewolfTarget && witchInfo?.hasSave && witchInfo?.hasKill && p.isAlive) {
                       const isTarget = witchKill === p.username;
                       const isWWTarget = witchInfo?.werewolfTarget === p.username;
                       if (!isWWTarget) {
@@ -385,7 +402,7 @@ function App() {
                           actionBtn = <span className="erp-badge" style={{fontSize: '9px', backgroundColor: 'var(--erp-danger)', color: 'white'}}>Attacked</span>;
                       }
                   }
-                  else if (me?.isAlive && myRole === 'Hunter' && gameState?.phase === 'HUNTER_REVENGE' && p.username !== username) {
+                  else if (myRole === 'Hunter' && gameState?.phase === 'HUNTER_REVENGE' && p.username !== username && p.isAlive) {
                       actionBtn = <button className="erp-button danger" style={{ padding: '2px 6px', fontSize: '10px' }} onClick={() => sendAction('target', p.username)}>Hunter Shoot</button>;
                   }
 
@@ -393,7 +410,7 @@ function App() {
                   const wwTargetedBy = Object.entries(wwVotes).filter(([wwName, target]) => target === p.username).map(([wwName]) => wwName);
 
                   return (
-                    <li key={i} className="roster-item" style={{ flexDirection: 'column', alignItems: 'flex-start', border: (isVoted || isNightTargeted) ? '1px solid var(--erp-warning)' : '1px solid transparent', backgroundColor: (isVoted || isNightTargeted) ? '#fff8eb' : '' }}>
+                    <li key={i} className="roster-item" style={{ flexDirection: 'column', alignItems: 'flex-start', border: (isVoted || isNightTargeted) ? '1px solid var(--erp-warning)' : '1px solid transparent', backgroundColor: (isVoted || isNightTargeted) ? 'var(--erp-highlight-bg)' : '' }}>
                       <div style={{ display: 'flex', width: '100%', alignItems: 'center', gap: '8px' }}>
                           <div className={`status-dot`} style={{ backgroundColor: !p.isAlive ? '#5e6c84' : (!p.connected ? '#ff991f' : 'var(--erp-success)') }} title={!p.isAlive ? 'Dead' : (!p.connected ? 'Offline/Disconnected' : 'Active')}></div>
                           <span style={{ flex: 1, color: p.isAlive ? 'inherit' : 'var(--erp-text-muted)', textDecoration: p.isAlive ? 'none' : 'line-through' }}>
@@ -531,8 +548,8 @@ function App() {
                           </div>
                         )}
                         <div className="chat-text" style={{ 
-                            backgroundColor: !isSystem ? '#fff' : sysStyle.bg, 
-                            border: !isSystem ? '1px solid #dfe1e6' : `1px solid ${sysStyle.border}`,
+                            backgroundColor: !isSystem ? 'var(--erp-chat-bg)' : sysStyle.bg, 
+                            border: !isSystem ? '1px solid var(--erp-border)' : `1px solid ${sysStyle.border}`,
                             color: isSystem ? sysStyle.text : 'inherit'
                         }}>{msg.text}</div>
                       </div>
