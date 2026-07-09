@@ -89,7 +89,7 @@ function App() {
   };
 
   useEffect(() => {
-    const saved = sessionStorage.getItem('werewolf_username');
+    const saved = localStorage.getItem('werewolf_username');
     if (saved) {
       setSavedUsername(saved);
       setUsername(saved);
@@ -145,8 +145,9 @@ function App() {
       setIsJoined(success);
       setErrorMsg('');
       if (success) {
-        sessionStorage.setItem('werewolf_username', username);
-        setSavedUsername(username);
+        const trimmedUsername = username.trim();
+        localStorage.setItem('werewolf_username', trimmedUsername);
+        setSavedUsername(trimmedUsername);
       }
     });
 
@@ -170,7 +171,7 @@ function App() {
       // Kill triggers
       if (msg.text?.includes('has been executed') || 
           msg.text?.includes('died during the night') || 
-          (msg.text?.includes('Hunter') && msg.text?.includes('shot') && msg.text?.includes('dead'))) {
+          (msg.text?.includes('Hunter') && msg.text?.includes('shot'))) {
           
           if (msg.text?.includes('Hunter') && msg.text?.includes('shot')) {
               playSound('hunter-shot.mp3');
@@ -211,14 +212,14 @@ function App() {
         setWwVotes(votes);
     });
 
-    socket.on('profile_deleted', (success) => {
+    socket.on('profile_deleted', (success, errMsg) => {
       if (success) {
-         sessionStorage.removeItem('werewolf_username');
+         localStorage.removeItem('werewolf_username');
          setSavedUsername(null);
          setUsername('');
          setIsJoined(false);
       } else {
-         setErrorMsg('Failed to delete profile. Please try again.');
+         setErrorMsg(`Failed to delete profile: ${errMsg || 'Please try again.'}`);
       }
     });
 
@@ -388,24 +389,26 @@ function App() {
             </div>
         )}
 
-        <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <span className="hide-mobile">User: {username}</span>
-          {myRole && <span className="erp-badge" style={{ backgroundColor: 'rgba(255,255,255,0.2)', color: 'white' }}>Role: {getRoleIcon(myRole)} {myRole}</span>}
+          {myRole && <span className="erp-badge" style={{ backgroundColor: 'rgba(255,255,255,0.2)', color: 'white' }}><span className="hide-mobile">Role: </span>{getRoleIcon(myRole)} <span className="hide-mobile">{myRole}</span></span>}
           <button 
             className="erp-button" 
-            style={{ padding: '4px 8px', fontSize: '12px', backgroundColor: 'transparent', border: '1px solid white', marginRight: '8px' }}
+            style={{ padding: '4px 8px', fontSize: '12px', backgroundColor: 'transparent', border: '1px solid white' }}
             onClick={() => setShowHowToPlay(true)}
+            title="How to Play"
           >
-            <Info size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }}/>
-            How to Play
+            <Info size={14} style={{ display: 'inline', verticalAlign: 'middle' }}/>
+            <span className="hide-mobile" style={{ marginLeft: '4px' }}>How to Play</span>
           </button>
           <button 
             className="erp-button" 
             style={{ padding: '4px 8px', fontSize: '12px', backgroundColor: 'transparent', border: '1px solid white' }}
             onClick={() => setShowLeaderboard(!showLeaderboard)}
+            title="Leaderboard"
           >
-            <Activity size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }}/>
-            {showLeaderboard ? 'Back to Game' : 'Leaderboard'}
+            <Activity size={14} style={{ display: 'inline', verticalAlign: 'middle' }}/>
+            <span className="hide-mobile" style={{ marginLeft: '4px' }}>{showLeaderboard ? 'Back' : 'Leaderboard'}</span>
           </button>
           <button 
             className="erp-button" 
@@ -417,10 +420,12 @@ function App() {
           </button>
           <button 
             className="erp-button danger" 
-            style={{ padding: '4px 8px', fontSize: '12px' }}
+            style={{ padding: '4px 8px', fontSize: '12px', display: 'flex', alignItems: 'center' }}
             onClick={handleLeaveGame}
+            title="Leave Game"
           >
-            Leave Game
+            <X size={14} className="show-mobile-only" />
+            <span className="hide-mobile">Leave Game</span>
           </button>
         </div>
       </header>
@@ -544,8 +549,8 @@ function App() {
           {showLeaderboard ? (
             <div className="panel">
               <div className="panel-header">Leaderboard</div>
-              <div style={{ padding: '20px' }}>
-                <table className="erp-table">
+              <div style={{ padding: '20px', overflowX: 'auto' }}>
+                <table className="erp-table" style={{ minWidth: '400px' }}>
                   <thead>
                     <tr>
                       <th>Employee</th>
@@ -669,6 +674,36 @@ function App() {
           )}
         </main>
       </div>
+
+      {/* Game Over Popup Overlay */}
+      {gameState?.phase === 'END' && (
+        <div className="game-over-overlay">
+          <div className={`game-over-popup ${gameState.winner === 'Werewolves' ? 'game-over-werewolves' : 'game-over-villagers'}`}>
+            <span className="game-over-icon">{gameState.winner === 'Werewolves' ? '🐺' : '🛡️'}</span>
+            <h2 className="game-over-title">
+              {gameState.winner === 'Werewolves' ? 'The Village has Fallen' : 'The Evil is Purged'}
+            </h2>
+            <p className="game-over-subtitle">
+              {gameState.winner === 'Werewolves' 
+                ? 'The Werewolves have successfully taken over the village.'
+                : 'The Villagers have successfully eliminated all Werewolves.'}
+            </p>
+            <div style={{ marginTop: '16px', textAlign: 'left', maxHeight: '200px', overflowY: 'auto', backgroundColor: 'var(--erp-bg-main)', color: 'var(--erp-text-main)', padding: '16px', borderRadius: '8px', border: '1px solid var(--erp-border)' }}>
+              <h4 style={{ margin: '0 0 12px 0', borderBottom: '1px solid var(--erp-border)', paddingBottom: '8px', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>Role Reveal</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                {gameState.players?.map((p, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', padding: '6px 8px', backgroundColor: 'var(--erp-bg-panel)', borderRadius: '4px', border: '1px solid var(--erp-border)' }}>
+                    <span style={{ textDecoration: p.isAlive ? 'none' : 'line-through', opacity: p.isAlive ? 1 : 0.6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '80px' }} title={p.username}>{p.username}</span>
+                    <span style={{ fontWeight: 'bold', flexShrink: 0 }}>{getRoleIcon(p.role)} {p.role}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* How To Play Modal */}
       {showHowToPlay && (
         <div className="modal-overlay" onClick={() => setShowHowToPlay(false)}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
@@ -693,11 +728,11 @@ function App() {
               
               <h3>Phases</h3>
               <ul>
-                <li><strong>LOBBY:</strong> Wait for at least 7 players, then host clicks Start Game.</li>
-                <li><strong>NIGHT:</strong> Village sleeps. Evil and Special roles wake up to perform actions. Chat is disabled.</li>
+                <li><strong>LOBBY:</strong> Wait for at least 7 players (Max 14), then host clicks Start Game.</li>
+                <li><strong>NIGHT:</strong> Village sleeps. Evil and Special roles wake up to perform actions. Chat is disabled to prevent "typing sounds" from giving away wolves.</li>
                 <li><strong>DAY CHAT:</strong> Village wakes up. Night deaths are announced. Debate and accuse in chat!</li>
-                <li><strong>DAY VOTE:</strong> Click on a player's name in the Team Roster on the left to cast your vote to execute them.</li>
-                <li><strong>REVEAL:</strong> The execution is carried out. The executed player's true role is revealed.</li>
+                <li><strong>DAY VOTE:</strong> Click on a player's name in the Team Roster on the left to cast your vote to execute them. If you prefer a peaceful day, you can vote to <strong>Skip Execution</strong>.</li>
+                <li><strong>REVEAL:</strong> The execution (or skip) is carried out. The executed player's true role is revealed.</li>
               </ul>
               
               <h3>Death Rules</h3>

@@ -3,7 +3,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const { GameEngine, PHASES, ROLES } = require('./game');
-const { getLeaderboard } = require('./db');
+const { getLeaderboard, deleteMetrics } = require('./db');
 
 const app = express();
 app.use(cors());
@@ -84,14 +84,22 @@ io.on('connection', (socket) => {
 
     socket.on('delete_profile', async (username) => {
         try {
-            await db.deleteMetrics(username);
-            const player = Object.values(game.players).find(p => p.username === username);
+            const trimmedUsername = username ? String(username).trim() : '';
+            if (!trimmedUsername) {
+                socket.emit('profile_deleted', false, 'Invalid username');
+                return;
+            }
+            await deleteMetrics(trimmedUsername);
+            const player = Object.values(game.players).find(p => p.username === trimmedUsername);
             if (player) {
                 game.removePlayerExplicitly(player.socketId);
             }
             socket.emit('profile_deleted', true);
+            io.emit('metrics_updated');
         } catch (err) {
-            socket.emit('profile_deleted', false);
+            console.error(err);
+            const msg = err instanceof Error ? err.message : String(err);
+            socket.emit('profile_deleted', false, msg);
         }
     });
 });

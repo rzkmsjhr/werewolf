@@ -76,8 +76,8 @@ class GameEngine {
         }
 
         // Prevent multiple active users from the same IP (only allow one new account per IP)
-        // const ipExists = Object.values(this.players).find(p => p.ipAddress === ipAddress && p.connected);
-        // if (ipExists) return 'You are already playing from another browser tab on this network!';
+        const ipExists = Object.values(this.players).find(p => p.ipAddress === ipAddress && p.connected);
+        if (ipExists) return 'You are already playing from another browser tab on this network!';
 
         this.players[socketId] = {
             username,

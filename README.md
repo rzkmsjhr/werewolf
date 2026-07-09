@@ -4,12 +4,14 @@ Werewolf Village Sync is a real-time, web-based multiplayer adaptation of the cl
 
 ## 🚀 Features
 
-- **Real-Time Multiplayer:** Instant synchronization of game phases, voting, and chat via Socket.io.
+- **Real-Time Multiplayer:** Instant synchronization of game phases, voting, and chat via Socket.io. Supports 7 to 14 players.
+- **Immersive Audiovisual Experience:** Features automatic Day/Night dark mode theme switching, synchronized sound effects (clock ticks, wolf howls, gunshots), and stunning animated Game Over popups.
 - **Enterprise-Themed UI:** A clean, responsive, and dynamic UI that automatically scales for both desktop and mobile devices.
-- **Persistent Sessions & Reconnection:** If you accidentally close your browser tab or lose connection, your spot is saved. Rejoining with your username brings you right back into the action!
+- **Persistent Sessions & Reconnection:** If you accidentally close your browser tab or lose connection, your spot is saved in your browser's local storage. Rejoining brings you right back into the action!
 - **Persistent Leaderboard:** Integrated SQLite database automatically tracks player metrics (Games Played, Win Rates, Wins, and Losses) across multiple sessions.
-- **Smart Anti-Cheating:** Features IP tracking to prevent players from joining with multiple accounts from the same device, and disables night-time chat to prevent "typing sounds" from giving away the Werewolves.
-- **Dynamic Role Management:** Fully automated role distribution and night-action resolution.
+- **Smart Anti-Cheating:** Features IP tracking to prevent players from joining with multiple accounts from the same network, and disables night-time chat to prevent "typing sounds" from giving away the Werewolves.
+- **Dynamic Role Management:** Fully automated role distribution and night-action resolution, including complex edge cases for the Witch and Hunter.
+- **Skip Vote Mechanic:** During the Day Vote, the village can collectively vote to "Skip Execution", letting the day pass peacefully without casualties.
 
 ---
 
