@@ -417,15 +417,16 @@ function App() {
         <div className="top-bar-title">
           <Moon size={18} />
           <span className="hide-mobile">Werewolf Village Sync v5.1</span>
+          <span className="mobile-app-title">Werewolf</span>
         </div>
         
         {timer > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '16px', fontWeight: 'bold', color: timer <= 5 ? '#ff991f' : 'white' }}>
+            <div className="top-bar-timer" style={{ color: timer <= 5 ? '#ff991f' : 'white' }}>
                 <Clock size={18} /> {formatTime(timer)}
             </div>
         )}
 
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+        <div className="top-bar-actions">
           <span className="hide-mobile">User: {username}</span>
           {myRole && <span className="erp-badge" style={{ backgroundColor: 'rgba(255,255,255,0.2)', color: 'white' }}><span className="hide-mobile">Role: </span>{getRoleIcon(myRole)} <span className="hide-mobile">{myRole}</span></span>}
           <button 
