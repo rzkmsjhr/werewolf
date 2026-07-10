@@ -512,10 +512,22 @@ class GameEngine {
         this.phase = PHASES.NIGHT_WITCH;
         this.io.emit('chat_message', { system: true, text: 'Witch Phase. (7s)' });
         
+        let displayedWWTarget = this.werewolfTarget;
+        if (displayedWWTarget) {
+            const guardian = Object.values(this.players).find(p => p.role === ROLES.GUARDIAN && p.isAlive);
+            const bodyguard = Object.values(this.players).find(p => p.role === ROLES.BODYGUARD && p.isAlive);
+            
+            if (guardian && this.nightActions[guardian.socketId] === displayedWWTarget) {
+                displayedWWTarget = null; // Blocked by Guardian
+            } else if (bodyguard && this.nightActions[bodyguard.socketId] === displayedWWTarget && this.nightActions[bodyguard.socketId] !== bodyguard.username) {
+                displayedWWTarget = null; // Intercepted by Bodyguard
+            }
+        }
+
         // Send locked target to witch
         if (this.witchState.socketId && this.players[this.witchState.socketId]?.isAlive) {
             this.io.to(this.witchState.socketId).emit('witch_info', {
-                werewolfTarget: this.werewolfTarget,
+                werewolfTarget: displayedWWTarget,
                 hasSave: this.witchState.hasSave,
                 hasKill: this.witchState.hasKill
             });
