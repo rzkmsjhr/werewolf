@@ -43,11 +43,44 @@ class GameEngine {
         this.nextPhaseAfterHunter = null; // where to go after hunter shoots
     }
 
+    getPlayerByUsername(username) {
+        return Object.values(this.players).find(p => p.username === username);
+    }
+
+    getAlivePlayerByUsername(username) {
+        const player = this.getPlayerByUsername(username);
+        return player && player.isAlive ? player : null;
+    }
+
+    emitPrivateRoleInfo(player) {
+        if (!player || !player.socketId || !player.role) return;
+
+        this.io.to(player.socketId).emit('role_assigned', player.role);
+
+        if (player.role === ROLES.WEREWOLF) {
+            const wwUsernames = Object.values(this.players)
+                .filter(p => p.role === ROLES.WEREWOLF)
+                .map(p => p.username);
+            this.io.to(player.socketId).emit('werewolf_team', wwUsernames);
+        }
+
+        if (player.role === ROLES.WITCH && this.phase === PHASES.NIGHT_WITCH) {
+            this.io.to(player.socketId).emit('witch_info', {
+                werewolfTarget: this.werewolfTarget,
+                hasSave: this.witchState.hasSave,
+                hasKill: this.witchState.hasKill
+            });
+        }
+    }
+
     addPlayer(socketId, username, ipAddress) {
         const existingPlayer = Object.values(this.players).find(p => p.username === username);
         
         if (existingPlayer) {
             if (existingPlayer.ipAddress !== ipAddress) return 'Username is already taken by another device.';
+            if (existingPlayer.connected && existingPlayer.socketId !== socketId) {
+                return 'This profile is already active in another tab.';
+            }
             
             // Reconnect logic
             const oldSocketId = existingPlayer.socketId;
@@ -65,13 +98,17 @@ class GameEngine {
                     this.witchState.socketId = socketId;
                 }
             }
+            this.emitPrivateRoleInfo(existingPlayer);
+            if (this.phase === PHASES.NIGHT && existingPlayer.role === ROLES.WEREWOLF) {
+                this.syncWerewolfTarget();
+            }
             this.broadcastState();
             return true;
         }
 
         if (this.phase !== PHASES.LOBBY) return 'Game is already in progress.';
 
-        if (Object.keys(this.players).length >= 14) {
+        if (Object.values(this.players).filter(p => p.connected).length >= 14) {
             return 'The lobby is full (Max 14 players).';
         }
 
@@ -95,12 +132,26 @@ class GameEngine {
         const player = this.players[socketId];
         if (player) {
             player.connected = false;
+            if (this.phase === PHASES.NIGHT && player.role === ROLES.WEREWOLF) {
+                this.syncWerewolfTarget();
+            }
             this.broadcastState();
         }
     }
 
     removePlayerExplicitly(socketId) {
+        const player = this.players[socketId];
+        if (player) {
+            delete this.votes[player.username];
+            delete this.nightActions[socketId];
+            if (this.witchState.socketId === socketId) {
+                this.witchState.socketId = null;
+            }
+        }
         delete this.players[socketId];
+        if (this.phase === PHASES.NIGHT) {
+            this.syncWerewolfTarget();
+        }
         if (this.phase !== PHASES.LOBBY) {
             this.checkWinCondition();
         }
@@ -210,6 +261,8 @@ class GameEngine {
     }
 
     handleAction(socketId, actionData) {
+        if (!actionData || typeof actionData !== 'object') return;
+
         const player = this.players[socketId];
         if (!player) return;
         
@@ -218,10 +271,11 @@ class GameEngine {
         if (!player.isAlive && !isDyingHunter) return;
 
         if (this.phase === PHASES.DAY_VOTE && actionData.type === 'vote') {
-            if (actionData.target === player.username) return; // Cannot vote self
             if (actionData.target === null) {
                 delete this.votes[player.username];
-            } else {
+            } else if (actionData.target === '__SKIP__') {
+                this.votes[player.username] = actionData.target;
+            } else if (actionData.target !== player.username && this.getAlivePlayerByUsername(actionData.target)) {
                 this.votes[player.username] = actionData.target;
             }
             this.broadcastState(); // To show who voted whom
@@ -245,7 +299,7 @@ class GameEngine {
             
             if (this.nightActions[player.socketId]) {
                 const originalTarget = this.nightActions[player.socketId];
-                const targetPlayer = Object.values(this.players).find(p => p.username === originalTarget);
+                const targetPlayer = this.getPlayerByUsername(originalTarget);
                 if (targetPlayer) {
                     const isWolf = targetPlayer.role === ROLES.WEREWOLF;
                     this.io.to(player.socketId).emit('chat_message', { system: true, text: `(Locked) Seer Vision: ${targetPlayer.username} is ${isWolf ? 'a Werewolf' : 'NOT a Werewolf'}.` });
@@ -253,7 +307,7 @@ class GameEngine {
                 return;
             }
             
-            const targetPlayer = Object.values(this.players).find(p => p.username === actionData.target);
+            const targetPlayer = this.getAlivePlayerByUsername(actionData.target);
             if (targetPlayer) {
                 this.nightActions[player.socketId] = actionData.target;
                 const isWolf = targetPlayer.role === ROLES.WEREWOLF;
@@ -261,13 +315,22 @@ class GameEngine {
             }
         }
         else {
+            if (![ROLES.WEREWOLF, ROLES.GUARDIAN, ROLES.BODYGUARD].includes(player.role)) return;
+
             if (actionData.target === null) {
                 delete this.nightActions[player.socketId];
             } else {
+                const targetPlayer = this.getAlivePlayerByUsername(actionData.target);
+                if (!targetPlayer) return;
+
                 if (player.role === ROLES.WEREWOLF) {
-                    const targetPlayer = Object.values(this.players).find(p => p.username === actionData.target);
-                    if (targetPlayer && targetPlayer.role === ROLES.WEREWOLF) return; // Werewolves cannot attack Werewolves
+                    if (targetPlayer.username === player.username || targetPlayer.role === ROLES.WEREWOLF) return; // Werewolves cannot attack Werewolves
                 }
+
+                if (player.role === ROLES.BODYGUARD && targetPlayer.username === player.username) {
+                    return;
+                }
+
                 this.nightActions[player.socketId] = actionData.target;
             }
         }
@@ -278,19 +341,19 @@ class GameEngine {
 
     syncWerewolfTarget() {
         const wolves = Object.values(this.players).filter(p => p.role === ROLES.WEREWOLF && p.isAlive);
+        const connectedWolves = wolves.filter(p => p.connected);
         let consensus = null;
-        let allVoted = true;
         
         const wolfVotes = {};
 
-        if (wolves.length > 0) {
-            for (let w of wolves) {
+        if (connectedWolves.length > 0) {
+            for (let w of connectedWolves) {
                 const vote = this.nightActions[w.socketId];
                 if (vote) wolfVotes[w.username] = vote;
             }
             
             const uniqueVotes = new Set(Object.values(wolfVotes));
-            if (uniqueVotes.size === 1 && Object.keys(wolfVotes).length === wolves.length) {
+            if (uniqueVotes.size === 1 && Object.keys(wolfVotes).length === connectedWolves.length) {
                 consensus = Array.from(uniqueVotes)[0];
             } else {
                 consensus = null;
@@ -310,7 +373,23 @@ class GameEngine {
         if (actionData.type === 'witch_undo') {
             delete this.nightActions[player.socketId];
         } else if (actionData.type === 'witch') {
-            this.nightActions[player.socketId] = actionData;
+            if (actionData.save === false && !actionData.killTarget) {
+                this.nightActions[player.socketId] = { type: 'witch', save: false, killTarget: null };
+                return;
+            }
+
+            const killTarget = this.getAlivePlayerByUsername(actionData.killTarget);
+            if (
+                actionData.save === true &&
+                this.werewolfTarget &&
+                this.witchState.hasSave &&
+                this.witchState.hasKill &&
+                killTarget &&
+                killTarget.username !== player.username &&
+                killTarget.username !== this.werewolfTarget
+            ) {
+                this.nightActions[player.socketId] = { type: 'witch', save: true, killTarget: killTarget.username };
+            }
         }
     }
 
@@ -320,7 +399,10 @@ class GameEngine {
         let tied = false;
         let executedUser = null;
 
-        Object.values(this.votes).forEach(target => {
+        Object.entries(this.votes).forEach(([voterUsername, target]) => {
+            if (!this.getAlivePlayerByUsername(voterUsername)) return;
+            if (target !== '__SKIP__' && !this.getAlivePlayerByUsername(target)) return;
+
             voteCounts[target] = (voteCounts[target] || 0) + 1;
             if (voteCounts[target] > maxVotes) {
                 maxVotes = voteCounts[target];
@@ -380,6 +462,9 @@ class GameEngine {
 
     resolveHunterKill(targetUsername) {
         if (this.phase !== PHASES.HUNTER_REVENGE) return;
+        const target = this.getAlivePlayerByUsername(targetUsername);
+        if (!target || target.username === this.dyingHunter) return;
+
         clearInterval(this.interval); // Stop hunter timer
         
         this.io.emit('chat_message', { system: true, text: `Hunter shot ${targetUsername} with their dying breath!` });
@@ -415,6 +500,8 @@ class GameEngine {
     }
 
     startNightWitch() {
+        this.syncWerewolfTarget();
+
         const witchAlive = this.witchState.socketId && this.players[this.witchState.socketId]?.isAlive;
         if (!witchAlive) {
             // Skip phase completely if there is no living Witch
@@ -425,22 +512,10 @@ class GameEngine {
         this.phase = PHASES.NIGHT_WITCH;
         this.io.emit('chat_message', { system: true, text: 'Witch Phase. (7s)' });
         
-        let displayedWWTarget = this.werewolfTarget;
-        if (displayedWWTarget) {
-            const guardian = Object.values(this.players).find(p => p.role === ROLES.GUARDIAN && p.isAlive);
-            const bodyguard = Object.values(this.players).find(p => p.role === ROLES.BODYGUARD && p.isAlive);
-            
-            if (guardian && this.nightActions[guardian.socketId] === displayedWWTarget) {
-                displayedWWTarget = null; // Blocked by Guardian
-            } else if (bodyguard && this.nightActions[bodyguard.socketId] === displayedWWTarget && this.nightActions[bodyguard.socketId] !== bodyguard.username) {
-                displayedWWTarget = null; // Intercepted by Bodyguard
-            }
-        }
-
         // Send locked target to witch
         if (this.witchState.socketId && this.players[this.witchState.socketId]?.isAlive) {
             this.io.to(this.witchState.socketId).emit('witch_info', {
-                werewolfTarget: displayedWWTarget,
+                werewolfTarget: this.werewolfTarget,
                 hasSave: this.witchState.hasSave,
                 hasKill: this.witchState.hasKill
             });
@@ -569,6 +644,8 @@ class GameEngine {
     }
 
     checkWinCondition() {
+        if (this.phase === PHASES.END) return true;
+
         const alivePlayers = Object.values(this.players).filter(p => p.isAlive);
         const aliveWolves = alivePlayers.filter(p => p.role === ROLES.WEREWOLF).length;
         const aliveVillagers = alivePlayers.length - aliveWolves;
@@ -584,6 +661,8 @@ class GameEngine {
     }
 
     async endGame(winnerTeam) {
+        if (this.phase === PHASES.END) return;
+
         clearInterval(this.interval);
         this.phase = PHASES.END;
         this.winner = winnerTeam;
@@ -607,6 +686,15 @@ class GameEngine {
 
         setTimeout(() => {
             this.phase = PHASES.LOBBY;
+            this.dayCount = 1;
+            this.timer = 0;
+            this.votes = {};
+            this.nightActions = {};
+            this.werewolfTarget = null;
+            this.winner = null;
+            this.dyingHunter = null;
+            this.nextPhaseAfterHunter = null;
+            this.witchState = { hasSave: true, hasKill: true, socketId: null };
             Object.values(this.players).forEach(p => {
                 p.role = null;
                 p.isAlive = true;

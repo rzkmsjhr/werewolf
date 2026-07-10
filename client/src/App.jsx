@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
-import { Shield, Moon, Sun, Crosshair, Users, MessageSquare, Activity, Clock, Info, X, Volume2, VolumeX } from 'lucide-react';
+import { Shield, Moon, MessageSquare, Activity, Clock, Info, X, Volume2, VolumeX } from 'lucide-react';
 import './index.css';
 
 const getRoleIcon = (role) => {
@@ -105,9 +105,9 @@ function App() {
   const [leaderboard, setLeaderboard] = useState([]);
   const [showHowToPlay, setShowHowToPlay] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [endGameModal, setEndGameModal] = useState(null);
 
   const [witchInfo, setWitchInfo] = useState(null);
-  const [witchSave, setWitchSave] = useState(false);
   const [witchKill, setWitchKill] = useState('');
 
   const [myNightTarget, setMyNightTarget] = useState(null);
@@ -117,27 +117,40 @@ function App() {
     if (gameState?.phase === 'NIGHT_WITCH') {
         setWitchConfirmed(false);
         setWitchKill('');
-        setWitchSave(true);
     }
   }, [gameState?.phase]);
   const [wwTeam, setWwTeam] = useState([]);
   const [wwVotes, setWwVotes] = useState({});
 
   const chatEndRef = useRef(null);
+  const chatInputRef = useRef(null);
+  const lastPhaseRef = useRef(null);
 
   useEffect(() => {
     socket.on('game_state', (state) => {
-      setGameState(prevState => {
-          if (prevState?.phase === 'LOBBY' && state.phase !== 'LOBBY') {
-              playSound('game-start.mp3');
-          }
-          return state;
-      });
+      const previousPhase = lastPhaseRef.current;
+      if (previousPhase === 'LOBBY' && state.phase !== 'LOBBY') {
+          playSound('game-start.mp3');
+          setEndGameModal(null);
+      }
+      if (state.phase === 'END' && previousPhase !== 'END') {
+          setEndGameModal({
+              winner: state.winner,
+              players: state.players || []
+          });
+      }
+      lastPhaseRef.current = state.phase;
+      setGameState(state);
       if (state.phase !== 'NIGHT' && state.phase !== 'NIGHT_WITCH') {
           setWitchInfo(null);
-          setWitchSave(false);
           setWitchKill('');
           setMyNightTarget(null); // reset local target tracking
+      }
+      if (state.phase === 'LOBBY') {
+          setMyRole(null);
+          setWwTeam([]);
+          setWwVotes({});
+          setWitchConfirmed(false);
       }
     });
 
@@ -243,12 +256,37 @@ function App() {
       const res = await fetch(`${BACKEND_URL}/api/metrics`);
       const data = await res.json();
       setLeaderboard(data);
-    } catch (e) {}
+    } catch {
+      setLeaderboard([]);
+    }
   };
 
   useEffect(() => {
     if (showLeaderboard) fetchLeaderboard();
   }, [showLeaderboard]);
+
+  const me = gameState?.players?.find(p => p.username === username);
+  const canChat = !!me && ['DAY_CHAT', 'DAY_VOTE', 'LOBBY', 'END'].includes(gameState?.phase);
+  const witchInfoLoaded = witchInfo !== null;
+  const witchHasBothPotions = !!(witchInfo?.hasSave && witchInfo?.hasKill);
+
+  useEffect(() => {
+    const focusChatInput = () => {
+      if (!isJoined || !canChat || showLeaderboard || showHowToPlay || endGameModal || document.visibilityState !== 'visible') return;
+      window.requestAnimationFrame(() => {
+        chatInputRef.current?.focus();
+      });
+    };
+
+    focusChatInput();
+    window.addEventListener('focus', focusChatInput);
+    document.addEventListener('visibilitychange', focusChatInput);
+
+    return () => {
+      window.removeEventListener('focus', focusChatInput);
+      document.removeEventListener('visibilitychange', focusChatInput);
+    };
+  }, [isJoined, canChat, showLeaderboard, showHowToPlay, endGameModal, gameState?.phase]);
 
   const handleJoin = (e) => {
     e.preventDefault();
@@ -262,6 +300,9 @@ function App() {
     if (chatInput.trim()) {
       socket.emit('chat_message', chatInput.trim());
       setChatInput('');
+      window.requestAnimationFrame(() => {
+        chatInputRef.current?.focus();
+      });
     }
   };
 
@@ -347,11 +388,6 @@ function App() {
     );
   }
 
-  const me = gameState?.players?.find(p => p.username === username);
-  const alivePlayers = gameState?.players?.filter(p => p.isAlive) || [];
-  
-  const canChat = !!me && (gameState?.phase === 'DAY_CHAT' || gameState?.phase === 'LOBBY' || gameState?.phase === 'END');
-  
   const formatTime = (s) => {
       const m = Math.floor(s / 60);
       const sec = s % 60;
@@ -475,7 +511,6 @@ function App() {
                   // Is this player currently selected by me?
                   const isVoted = gameState?.phase === 'DAY_VOTE' && gameState?.votes && gameState.votes[username] === p.username;
                   const isNightTargeted = gameState?.phase === 'NIGHT' && myNightTarget === p.username;
-                  const isHunterTargeted = gameState?.phase === 'HUNTER_REVENGE' && myNightTarget === p.username;
 
                   if (me?.isAlive && p.isAlive && gameState?.phase === 'DAY_VOTE' && p.username !== username) {
                       actionBtn = <button className={`erp-button ${isVoted ? '' : 'danger'}`} style={{ padding: '2px 6px', fontSize: '10px', backgroundColor: isVoted ? 'var(--erp-warning)' : '' }} onClick={() => sendAction('vote', p.username)}>{isVoted ? 'Cancel Vote' : 'Vote (Execute)'}</button>;
@@ -506,7 +541,7 @@ function App() {
                   }
 
                   const votesAgainst = Object.values(gameState?.votes || {}).filter(v => v === p.username).length;
-                  const wwTargetedBy = Object.entries(wwVotes).filter(([wwName, target]) => target === p.username).map(([wwName]) => wwName);
+                  const wwTargetedBy = Object.entries(wwVotes).filter(([, target]) => target === p.username).map(([wwName]) => wwName);
 
                   return (
                     <li key={i} className="roster-item" style={{ flexDirection: 'column', alignItems: 'flex-start', border: (isVoted || isNightTargeted) ? '1px solid var(--erp-warning)' : '1px solid transparent', backgroundColor: (isVoted || isNightTargeted) ? 'var(--erp-highlight-bg)' : '' }}>
@@ -580,9 +615,15 @@ function App() {
               {/* New Witch Panel */}
               {me?.isAlive && myRole === 'Witch' && gameState?.phase === 'NIGHT_WITCH' && (
                   <div className="panel" style={{ marginBottom: '16px', borderLeft: '4px solid #a371f7' }}>
-                      <div className="panel-header" style={{ color: '#a371f7', paddingBottom: '8px' }}>Witch Action Required</div>
+                      <div className="panel-header" style={{ color: '#a371f7', paddingBottom: '8px' }}>
+                          {!witchInfoLoaded ? 'Witch Phase' : (!witchHasBothPotions ? 'Witch Potions Spent' : (witchInfo?.werewolfTarget ? 'Witch Action Required' : 'Witch Potions Available'))}
+                      </div>
                       <div style={{ padding: '0 20px 20px 20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                          {witchInfo?.werewolfTarget ? (
+                          {!witchInfoLoaded ? (
+                              <div style={{ color: 'var(--erp-text-muted)' }}>
+                                  Awaiting the night report...
+                              </div>
+                          ) : witchInfo?.werewolfTarget ? (
                               <div style={{ color: 'var(--erp-danger)', fontWeight: 'bold' }}>
                                   ⚠️ Werewolves attacked: {witchInfo.werewolfTarget}
                               </div>
@@ -591,11 +632,35 @@ function App() {
                                   Werewolves did not attack anyone.
                               </div>
                           )}
-                          
-                          {witchConfirmed ? (
+
+                          {witchInfoLoaded && (
+                              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                  <span className="erp-badge" style={{ backgroundColor: witchInfo.hasSave ? '#e3fcef' : '#ffebe6', color: witchInfo.hasSave ? '#006644' : '#bf2600' }}>
+                                      Save Potion: {witchInfo.hasSave ? 'Available' : 'Used'}
+                                  </span>
+                                  <span className="erp-badge" style={{ backgroundColor: witchInfo.hasKill ? '#e3fcef' : '#ffebe6', color: witchInfo.hasKill ? '#006644' : '#bf2600' }}>
+                                      Poison Potion: {witchInfo.hasKill ? 'Available' : 'Used'}
+                                  </span>
+                              </div>
+                          )}
+                           
+                          {!witchInfoLoaded ? (
+                              <div style={{ fontSize: '13px', color: 'var(--erp-text-muted)', lineHeight: 1.4 }}>
+                                  Your options will appear once the werewolf target is confirmed.
+                              </div>
+                          ) : !witchHasBothPotions ? (
+                              <div style={{ backgroundColor: 'var(--erp-bg-main)', color: 'var(--erp-text-main)', padding: '12px', borderRadius: '4px', border: '1px solid var(--erp-border)', fontSize: '13px', lineHeight: 1.4 }}>
+                                  You already used your one-time Witch ability this game. Save and Poison are both spent, so there is no Witch action available tonight.
+                                  {witchInfo?.werewolfTarget && (
+                                      <div style={{ marginTop: '6px', color: 'var(--erp-text-muted)' }}>
+                                          The attack on <strong>{witchInfo.werewolfTarget}</strong> will resolve without your potion choice.
+                                      </div>
+                                  )}
+                              </div>
+                          ) : witchConfirmed ? (
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--erp-success-bg, #e3fcef)', padding: '12px', borderRadius: '4px', border: '1px solid var(--erp-success, #00875a)' }}>
                                   <span style={{ color: 'var(--erp-success, #006644)', fontWeight: 'bold' }}>✓ Action Registered</span>
-                                  <button className="erp-button" style={{ backgroundColor: 'transparent', color: 'var(--erp-text-main)', border: '1px solid var(--erp-border)' }} onClick={undoWitchAction}>Undo</button>
+                                  <button className="erp-button" style={{ backgroundColor: '#ffffff', color: '#172b4d', border: '1px solid #6b778c' }} onClick={undoWitchAction}>Undo</button>
                               </div>
                           ) : !witchInfo?.werewolfTarget ? (
                               <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
@@ -660,6 +725,7 @@ function App() {
                   <input 
                     type="text" 
                     className="erp-input"
+                    ref={chatInputRef}
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     placeholder={!canChat ? "Chat disabled..." : "Enter message to channel..."}
@@ -676,25 +742,30 @@ function App() {
       </div>
 
       {/* Game Over Popup Overlay */}
-      {gameState?.phase === 'END' && (
+      {endGameModal && (
         <div className="game-over-overlay">
-          <div className={`game-over-popup ${gameState.winner === 'Werewolves' ? 'game-over-werewolves' : 'game-over-villagers'}`}>
-            <span className="game-over-icon">{gameState.winner === 'Werewolves' ? '🐺' : '🛡️'}</span>
+          <div className={`game-over-popup ${endGameModal.winner === 'Werewolves' ? 'game-over-werewolves' : 'game-over-villagers'}`}>
+            <button className="game-over-close" type="button" onClick={() => setEndGameModal(null)} aria-label="Close game over popup">
+              <X size={18} />
+            </button>
+            <span className="game-over-icon">{endGameModal.winner === 'Werewolves' ? '🐺' : '🛡️'}</span>
             <h2 className="game-over-title">
-              {gameState.winner === 'Werewolves' ? 'The Village has Fallen' : 'The Evil is Purged'}
+              {endGameModal.winner === 'Werewolves' ? 'The Village has Fallen' : 'The Evil is Purged'}
             </h2>
             <p className="game-over-subtitle">
-              {gameState.winner === 'Werewolves' 
+              {endGameModal.winner === 'Werewolves'
                 ? 'The Werewolves have successfully taken over the village.'
                 : 'The Villagers have successfully eliminated all Werewolves.'}
             </p>
-            <div style={{ marginTop: '16px', textAlign: 'left', maxHeight: '200px', overflowY: 'auto', backgroundColor: 'var(--erp-bg-main)', color: 'var(--erp-text-main)', padding: '16px', borderRadius: '8px', border: '1px solid var(--erp-border)' }}>
-              <h4 style={{ margin: '0 0 12px 0', borderBottom: '1px solid var(--erp-border)', paddingBottom: '8px', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>Role Reveal</h4>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                {gameState.players?.map((p, i) => (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', padding: '6px 8px', backgroundColor: 'var(--erp-bg-panel)', borderRadius: '4px', border: '1px solid var(--erp-border)' }}>
-                    <span style={{ textDecoration: p.isAlive ? 'none' : 'line-through', opacity: p.isAlive ? 1 : 0.6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '80px' }} title={p.username}>{p.username}</span>
-                    <span style={{ fontWeight: 'bold', flexShrink: 0 }}>{getRoleIcon(p.role)} {p.role}</span>
+            <div className="role-reveal-box">
+              <h4>Role Reveal</h4>
+              <div className="role-reveal-grid">
+                {endGameModal.players.map((p, i) => (
+                  <div key={`${p.username}-${i}`} className="role-reveal-item">
+                    <span className="role-reveal-name" title={p.username} style={{ textDecoration: p.isAlive ? 'none' : 'line-through', opacity: p.isAlive ? 1 : 0.6 }}>
+                      {p.username}
+                    </span>
+                    <span className="role-reveal-role">{getRoleIcon(p.role)} {p.role}</span>
                   </div>
                 ))}
               </div>
@@ -729,10 +800,10 @@ function App() {
               <h3>Phases</h3>
               <ul>
                 <li><strong>LOBBY:</strong> Wait for at least 7 players (Max 14), then host clicks Start Game.</li>
+                <li><strong>DAY CHAT:</strong> The first day begins immediately after roles are assigned. Debate and accuse in chat!</li>
+                <li><strong>DAY VOTE:</strong> Chat stays open while voting unlocks. Click on a player's name in the Team Roster on the left to cast your vote to execute them. If you prefer a peaceful day, you can vote to <strong>Skip Execution</strong>.</li>
+                <li><strong>REVEAL:</strong> The execution result is announced, and an executed player's role is revealed.</li>
                 <li><strong>NIGHT:</strong> Village sleeps. Evil and Special roles wake up to perform actions. Chat is disabled to prevent "typing sounds" from giving away wolves.</li>
-                <li><strong>DAY CHAT:</strong> Village wakes up. Night deaths are announced. Debate and accuse in chat!</li>
-                <li><strong>DAY VOTE:</strong> Click on a player's name in the Team Roster on the left to cast your vote to execute them. If you prefer a peaceful day, you can vote to <strong>Skip Execution</strong>.</li>
-                <li><strong>REVEAL:</strong> The execution (or skip) is carried out. The executed player's true role is revealed.</li>
               </ul>
               
               <h3>Death Rules</h3>

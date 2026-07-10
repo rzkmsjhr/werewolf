@@ -37,10 +37,10 @@ A game requires a minimum of **7 players** to start. The system will automatical
 The game automatically cycles through phases based on a strict timer:
 
 1. **LOBBY:** Players join the game. The host can start the game once the 7-player minimum is reached.
-2. **NIGHT:** The village sleeps. Evil roles and special village roles wake up to perform their actions in secret. The general chat is disabled.
-3. **DAY CHAT:** The village wakes up. Night deaths are announced. Players use the Sync Channel to debate, accuse, and strategize.
-4. **DAY VOTE:** Chatting continues, but the voting system unlocks. Players click on the Team Roster to cast their vote to execute a suspected Werewolf.
-5. **REVEAL:** The execution is carried out based on majority votes, and the executed player's true role is revealed.
+2. **DAY CHAT:** The first day begins immediately after roles are assigned. Players use the Sync Channel to debate, accuse, and strategize.
+3. **DAY VOTE:** Chatting continues, but the voting system unlocks. Players click on the Team Roster to cast their vote to execute a suspected Werewolf.
+4. **REVEAL:** The execution is carried out based on majority votes, and the executed player's true role is revealed.
+5. **NIGHT:** The village sleeps. Evil roles and special village roles wake up to perform their actions in secret. The general chat is disabled.
 6. **HUNTER REVENGE (Conditional):** If the Hunter dies, time freezes and they have a few seconds to choose a target to shoot.
 7. **END:** The game concludes when a win condition is met. The winning team is announced, metrics are updated, and the lobby resets.
 
