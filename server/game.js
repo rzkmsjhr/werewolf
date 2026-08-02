@@ -77,10 +77,6 @@ class GameEngine {
         const existingPlayer = Object.values(this.players).find(p => p.username === username);
         
         if (existingPlayer) {
-            if (existingPlayer.ipAddress !== ipAddress) return 'Username is already taken by another device.';
-            if (existingPlayer.connected && existingPlayer.socketId !== socketId) {
-                return 'This profile is already active in another tab.';
-            }
             
             // Reconnect logic
             const oldSocketId = existingPlayer.socketId;
@@ -112,9 +108,7 @@ class GameEngine {
             return 'The lobby is full (Max 14 players).';
         }
 
-        // Prevent multiple active users from the same IP (only allow one new account per IP)
-        const ipExists = Object.values(this.players).find(p => p.ipAddress === ipAddress && p.connected);
-        if (ipExists) return 'You are already playing from another browser tab on this network!';
+
 
         this.players[socketId] = {
             username,
@@ -417,7 +411,11 @@ class GameEngine {
         
         if (!tied && executedUser && executedUser !== '__SKIP__') {
             this.io.emit('chat_message', { system: true, text: `Village Decision: ${executedUser} has been executed.` });
-            this.killPlayer(executedUser, () => this.startNight());
+            this.killPlayer(executedUser, () => {
+                if (!this.checkWinCondition()) {
+                    this.startNight();
+                }
+            });
         } else if (!tied && executedUser === '__SKIP__') {
             this.io.emit('chat_message', { system: true, text: `Village Decision: The village voted to skip execution today.` });
             if (!this.checkWinCondition()) {
@@ -436,8 +434,6 @@ class GameEngine {
         if (!player) return nextPhaseCallback();
         
         player.isAlive = false;
-        
-        if (this.checkWinCondition()) return;
 
         if (player.role === ROLES.HUNTER) {
             this.startHunterRevenge(player, nextPhaseCallback);
@@ -525,13 +521,11 @@ class GameEngine {
         }
 
         // Send locked target to witch
-        if (this.witchState.socketId && this.players[this.witchState.socketId]?.isAlive) {
-            this.io.to(this.witchState.socketId).emit('witch_info', {
-                werewolfTarget: displayedWWTarget,
-                hasSave: this.witchState.hasSave,
-                hasKill: this.witchState.hasKill
-            });
-        }
+        this.io.to(this.witchState.socketId).emit('witch_info', {
+            werewolfTarget: displayedWWTarget,
+            hasSave: this.witchState.hasSave,
+            hasKill: this.witchState.hasKill
+        });
         
         this.broadcastState();
 
@@ -542,8 +536,8 @@ class GameEngine {
 
     resolveNight() {
         let diedUsers = [];
-        let protectedUser = null;
-        let bodyguardDiedFor = null;
+        let guardianProtected = null;
+        let bodyguardProtected = null;
 
         const wolves = Object.values(this.players).filter(p => p.role === ROLES.WEREWOLF && p.isAlive);
         const guardian = Object.values(this.players).find(p => p.role === ROLES.GUARDIAN && p.isAlive);
@@ -551,14 +545,13 @@ class GameEngine {
         const witch = Object.values(this.players).find(p => p.role === ROLES.WITCH && p.isAlive);
 
         if (guardian && this.nightActions[guardian.socketId]) {
-            protectedUser = this.nightActions[guardian.socketId];
+            guardianProtected = this.nightActions[guardian.socketId];
         }
 
         if (bodyguard && this.nightActions[bodyguard.socketId]) {
             // Cannot protect self
             if (this.nightActions[bodyguard.socketId] !== bodyguard.username) {
-                protectedUser = this.nightActions[bodyguard.socketId];
-                bodyguardDiedFor = protectedUser;
+                bodyguardProtected = this.nightActions[bodyguard.socketId];
             }
         }
 
@@ -583,12 +576,14 @@ class GameEngine {
         if (wwKillTarget) {
             if (witchSaved) {
                 wasTargetProtected = true;
-            } else if (protectedUser === wwKillTarget) {
+            } else if (bodyguardProtected === wwKillTarget) {
                 wasTargetProtected = true;
-                if (bodyguardDiedFor === wwKillTarget) {
+                // Bodyguard intercepts the attack. Check if Guardian is protecting the Bodyguard!
+                if (guardianProtected !== bodyguard.username) {
                     diedUsers.push(bodyguard.username);
                 }
-                // Guardian protects cleanly
+            } else if (guardianProtected === wwKillTarget) {
+                wasTargetProtected = true;
             } else {
                 diedUsers.push(wwKillTarget);
             }
@@ -596,8 +591,8 @@ class GameEngine {
 
         // Resolve Witch Kill with new protection rules
         if (witchKillTarget) {
-            if (protectedUser === witchKillTarget) {
-                if (bodyguardDiedFor === witchKillTarget) {
+            if (bodyguardProtected === witchKillTarget) {
+                if (guardianProtected !== bodyguard.username) {
                     // Bodyguard intercepts the poison
                     // But check if the Bodyguard was the Werewolf target and got saved by the Witch!
                     const bodyguardWasSaved = (witchSaved && wwKillTarget === bodyguard.username);
@@ -606,6 +601,8 @@ class GameEngine {
                     }
                 }
                 // Guardian protects cleanly, no one dies from poison
+            } else if (guardianProtected === witchKillTarget) {
+                // Guardian protects cleanly
             } else {
                 if (!diedUsers.includes(witchKillTarget)) {
                     diedUsers.push(witchKillTarget);

@@ -89,7 +89,7 @@ function App() {
   };
 
   useEffect(() => {
-    const saved = localStorage.getItem('werewolf_username');
+    const saved = sessionStorage.getItem('werewolf_username');
     if (saved) {
       setSavedUsername(saved);
       setUsername(saved);
@@ -159,7 +159,7 @@ function App() {
       setErrorMsg('');
       if (success) {
         const trimmedUsername = username.trim();
-        localStorage.setItem('werewolf_username', trimmedUsername);
+        sessionStorage.setItem('werewolf_username', trimmedUsername);
         setSavedUsername(trimmedUsername);
       }
     });
@@ -227,7 +227,7 @@ function App() {
 
     socket.on('profile_deleted', (success, errMsg) => {
       if (success) {
-         localStorage.removeItem('werewolf_username');
+         sessionStorage.removeItem('werewolf_username');
          setSavedUsername(null);
          setUsername('');
          setIsJoined(false);
